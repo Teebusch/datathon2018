@@ -1,0 +1,17 @@
+---
+title: "Prepare data"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+df <- read_csv2("cycling.csv")
+
+nrow(df)
+unique(df$qid) 
+```
+
