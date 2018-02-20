@@ -9,9 +9,22 @@ library(lubridate)
 ```
 
 ```{r}
-df <- read_csv2("cycling.csv")
+df <- read_csv2("cycling.csv", col_types = "cncccccccccccc")
 
 nrow(df)
 unique(df$qid) 
 ```
+
+## remove the extra 10th of seconds (?) from some of the timestamps
+
+```{r}
+ix <- grepl(pattern = "^[0-9]{10}$", df$ts)
+
+df <- df %>% 
+  mutate(ts = ifelse(ix, ts, as.numeric(str_sub(ts, 1, 10))))
+
+head(df, 30)
+```
+
+
 
