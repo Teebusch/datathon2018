@@ -6,14 +6,20 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(lubridate)
+
+#devtools::install_github("dkahle/ggmap")
+library(ggmap)
+```
+
+```{r echo = FALSE}
+df <- read_csv2("cycling_raw.csv", col_types = "cncccccccccccc")
 ```
 
 ```{r}
-df <- read_csv2("cycling.csv", col_types = "cncccccccccccc")
-
 nrow(df)
 unique(df$qid) 
 ```
+
 
 ## remove the extra 10th of seconds (?) from some of the timestamps
 
@@ -26,5 +32,34 @@ df <- df %>%
 head(df, 30)
 ```
 
+```{r}
 
+clean_coord <- function(x) {
+  str_replace_all(x, "\\.", "") %>% 
+    str_replace("([0-9]{2})([0-9]*)", "\\1.\\2") %>%
+    as.numeric()
+}
+
+df <- df %>% 
+  mutate(
+    latitude_old = latitude, # keep them around for now, so we can check if anything looks weird
+    longitude_old = longitude, 
+    latitude = clean_coord(latitude),
+    longitude = clean_coord(longitude)
+  )
+```
+
+```{r}
+df %>%
+  group_by(qid) %>%
+  arrange(ts) %>%
+  ungroup() %>%
+  ggplot(aes(x = longitude, y = latitude, color = qid)) +
+  geom_path(show.legend = FALSE) +
+  facet_wrap(~qid)
+```
+
+```{r}
+write_csv(df, "cycling_clean.csv")
+```
 
