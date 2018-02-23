@@ -25,3 +25,4 @@ vignettes/*.pdf
 .Rproj.user
 .DS_Store
 _test.R
+*.nb.html
