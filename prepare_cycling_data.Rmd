@@ -76,11 +76,11 @@ df <- df %>%
 df <- df %>% 
   mutate(
     id = as.character(group_indices(df, qid)),
-    time = as_datetime(ts),
-    day = floor_date(time, "day"),
+    dt = as_datetime(ts),
+    day = floor_date(dt, "day"),
     time = ifelse(day == ymd("2017-10-17"), 
-                  with_tz(day, "Europe/Brussels"), 
-                  with_tz(day, "Europe/Athens")),
+                  with_tz(dt, "Europe/Brussels"), 
+                  with_tz(dt, "Europe/Athens")),
     dayid = dense_rank(as.numeric(day)),
     power = na_if(power, -1),
     cadence = na_if(cadence, -1),
@@ -88,7 +88,7 @@ df <- df %>%
     fd_gear = na_if(fd_gear, -1),
     rd_gear = na_if(rd_gear, -1)
   ) %>%
-  select(qid, id, day, dayid, ts, time, everything(), 
+  select(qid, id, day, dayid, ts, dt, everything(), 
          -EventProcessedUtcTime, 
          -EventEnqueuedUtcTime) 
 ```
@@ -153,9 +153,9 @@ df <- df %>%
 http://theclimbingcyclist.com/gradients-and-cycling-an-introduction/
 
 ```{r}
-altitude_mean <- function(a) {
-  mean(a[a >= 0], na.rm = TRUE)
-}
+# altitude_mean <- function(a) {
+#   mean(a[a >= 0], na.rm = TRUE)
+# }
 
 get_gradient <- function(rise, run)  {
   ifelse(run == 0, 0, round((rise / run) * 100, 2))
@@ -176,7 +176,6 @@ df %>%
   filter(dayid == 2) %>%
   select(dist, altitude, d_altitude, gradient) %>%
   head()
-
 ```
 
 ## calculate differences in heading between timestamps
@@ -206,13 +205,11 @@ df <- df %>%
 
 
 ```{r}
-p <- df %>%
-  filter(day == 1) %>%
+df %>%
+  filter(dayid == 3) %>%
   mutate(cumturn = cumsum(d_heading)) %>%
   ggplot(aes(x = ts, y = cumturn/10, group = qid, color = as.factor(qid))) +
   geom_path() 
-
-plotly::ggplotly(p)
 ```
 
 
