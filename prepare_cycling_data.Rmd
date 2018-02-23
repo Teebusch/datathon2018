@@ -6,31 +6,48 @@ output: html_notebook
 ```{r}
 library(tidyverse)
 library(lubridate)
-
-#devtools::install_github("dkahle/ggmap")
-library(ggmap)
+library(geosphere)
+library(zoo)
 ```
 
 ```{r echo = FALSE}
-df <- read_csv2("cycling_raw.csv", col_types = "cncccccccccccc")
+df <- read_delim("cycling_raw.csv", col_types = "ccccnnnnnnnnTT", delim = ";",
+                locale = locale(decimal_mark = ".", grouping_mark = ","))
+
+head(df)
+```
+
+
+```{r}
+df2 <- read_delim("cycling_raw2.csv", delim = ";", 
+                  locale = locale(decimal_mark = ".", grouping_mark = ","))
+
+df2 <- df2 %>%
+  select(-deviceId, # it's the same as qid
+         -qgroup, # it's always the sme
+         -PartitionId # it's always the same
+         ) 
+
+head(df2)
 ```
 
 ```{r}
-nrow(df)
-unique(df$qid) 
+df <- bind_rows(df, df2)
 ```
 
-
-## remove the extra 10th of seconds (?) from some of the timestamps
+# Format timestamps
 
 ```{r}
-ix <- grepl(pattern = "^[0-9]{10}$", df$ts)
+df$ts <- df$ts %>%
+  str_replace_all("\\.", "") %>% 
+  str_sub(1, 10) %>%
+  as.integer()
 
-df <- df %>% 
-  mutate(ts = ifelse(ix, ts, as.numeric(str_sub(ts, 1, 10))))
-
-head(df, 30)
+head(df)
 ```
+
+
+## Clean longitude and latitude format
 
 ```{r}
 
@@ -42,24 +59,164 @@ clean_coord <- function(x) {
 
 df <- df %>% 
   mutate(
-    latitude_old = latitude, # keep them around for now, so we can check if anything looks weird
-    longitude_old = longitude, 
     latitude = clean_coord(latitude),
     longitude = clean_coord(longitude)
   )
 ```
 
+## clean other variables
+
 ```{r}
-df %>%
-  group_by(qid) %>%
-  arrange(ts) %>%
-  ungroup() %>%
-  ggplot(aes(x = longitude, y = latitude, color = qid)) +
-  geom_path(show.legend = FALSE) +
-  facet_wrap(~qid)
+
+# add simplified id (we could replace these with names), 
+# get datetime (works with ggplot), 
+# get day as sequence
+# make NAs explicit (use `mutate(col = coalesce(col, -1))` to revert)
+# remove timestamps of central tracking system
+df <- df %>% 
+  mutate(
+    id = as.character(group_indices(df, qid)),
+    time = as_datetime(ts),
+    day = floor_date(time, "day"),
+    time = ifelse(day == ymd("2017-10-17"), 
+                  with_tz(day, "Europe/Brussels"), 
+                  with_tz(day, "Europe/Athens")),
+    dayid = dense_rank(as.numeric(day)),
+    power = na_if(power, -1),
+    cadence = na_if(cadence, -1),
+    heartrate = na_if(heartrate, -1),
+    fd_gear = na_if(fd_gear, -1),
+    rd_gear = na_if(rd_gear, -1)
+  ) %>%
+  select(qid, id, day, dayid, ts, time, everything(), 
+         -EventProcessedUtcTime, 
+         -EventEnqueuedUtcTime) 
+```
+
+# exclude non-movers
+
+```{r}
+movements <- df %>% 
+  group_by(id, day) %>%
+  summarize(lon_range = distHaversine(c(min(longitude), mean(latitude)), 
+                                      c(max(longitude), mean(latitude)))/1000,
+            lat_range = distHaversine(c(min(latitude), mean(longitude)), 
+                                      c(max(latitude), mean(longitude)))/1000
+  ) %>%
+  mutate(is_moving = lon_range > 2 & lat_range > 2) %>%
+  arrange(is_moving, lon_range, lat_range)
+
+movements
 ```
 
 ```{r}
-write_csv(df, "cycling_clean.csv")
+df <- df %>%
+  filter(id %in% filter(movements, is_moving)$id)
+```
+
+# remove duplicate rows and sort by timestamp
+
+```{r}
+df  <- df %>%
+  distinct() %>%
+  group_by(qid, day) %>%
+  arrange(ts)
+
+head(df)
+```
+
+## plot the geolocations
+
+```{r fig.height = 10, fig.width = 7}
+df %>%
+  ggplot(aes(x = longitude, y = latitude, color = as.factor(dayid))) +
+  geom_path() +
+  facet_grid(qid ~ day, scales = "free") +
+  theme(legend.position = "bottom")
+```
+
+
+## calculate distance covered between timestamps
+
+```{r}
+df <- df %>%
+  group_by(qid, day) %>%
+  mutate(dist = 
+           distHaversine(
+             as.matrix(cbind(longitude, latitude)), 
+             as.matrix(cbind(lag(longitude), lag(latitude)))) %>% 
+           coalesce(0)
+         )
+```
+
+## calculate difference in altitude and gradient between timestamps
+http://theclimbingcyclist.com/gradients-and-cycling-an-introduction/
+
+```{r}
+altitude_mean <- function(a) {
+  mean(a[a >= 0], na.rm = TRUE)
+}
+
+get_gradient <- function(rise, run)  {
+  ifelse(run == 0, 0, round((rise / run) * 100, 2))
+}
+
+df <- df %>%
+  group_by(qid, day) %>%
+  mutate(altitude = ifelse(altitude < 0, NA, altitude)) %>% 
+  fill(altitude) %>%
+  mutate(
+    d_altitude = (lag(altitude) - altitude) %>% coalesce(0),
+    gradient = get_gradient(d_altitude, dist)
+  ) %>%
+  ungroup()
+
+
+df %>% 
+  filter(dayid == 2) %>%
+  select(dist, altitude, d_altitude, gradient) %>%
+  head()
+
+```
+
+## calculate differences in heading between timestamps
+
+```{r}
+
+diff_heading <- function(h1, h2) {
+  d1 <- (h2 - h1)
+  d2 <- (h2 - abs((h1-360)))
+  
+  ifelse(abs(d1) < abs(d2), d1, d2)
+} 
+
+# tests
+diff_heading(360, 20) == 20
+diff_heading(10, 20) == 10
+diff_heading(20, 360) == 20
+diff_heading(10, 20) == 10
+
+df <- df %>% 
+  group_by(qid, day) %>%
+  mutate(d_heading = 
+           diff_heading(heading, lag(heading)) %>%
+           coalesce(0)
+         )
+```
+
+
+```{r}
+p <- df %>%
+  filter(day == 1) %>%
+  mutate(cumturn = cumsum(d_heading)) %>%
+  ggplot(aes(x = ts, y = cumturn/10, group = qid, color = as.factor(qid))) +
+  geom_path() 
+
+plotly::ggplotly(p)
+```
+
+
+```{r}
+write_rds(df, "cycling.rds", compress = "gz")
 ```
 
