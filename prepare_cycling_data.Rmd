@@ -7,7 +7,6 @@ output: html_notebook
 library(tidyverse)
 library(lubridate)
 library(geosphere)
-library(zoo)
 ```
 
 ```{r echo = FALSE}
@@ -17,37 +16,7 @@ df <- read_delim("cycling_raw.csv", col_types = "ccccnnnnnnnnTT", delim = ";",
 head(df)
 ```
 
-
-```{r}
-df2 <- read_delim("cycling_raw2.csv", delim = ";", 
-                  locale = locale(decimal_mark = ".", grouping_mark = ","))
-
-df2 <- df2 %>%
-  select(-deviceId, # it's the same as qid
-         -qgroup, # it's always the sme
-         -PartitionId # it's always the same
-         ) 
-
-head(df2)
-```
-
-```{r}
-df <- bind_rows(df, df2)
-```
-
-# Format timestamps
-
-```{r}
-df$ts <- df$ts %>%
-  str_replace_all("\\.", "") %>% 
-  str_sub(1, 10) %>%
-  as.integer()
-
-head(df)
-```
-
-
-## Clean longitude and latitude format
+## Clean longitude and latitude format of first data frame
 
 ```{r}
 
@@ -62,6 +31,65 @@ df <- df %>%
     latitude = clean_coord(latitude),
     longitude = clean_coord(longitude)
   )
+
+head(df)
+```
+
+## Load second data frame
+
+```{r}
+df2 <- read_delim("cycling_raw2.csv", delim = ";", 
+                  locale = locale(decimal_mark = ".", grouping_mark = ","))
+
+df2 <- df2 %>%
+  select(-deviceId, # it's the same as qid
+         -qgroup, # it's always the same
+         -PartitionId # it's always the same
+         ) 
+
+head(df2)
+```
+
+## Clean longitude and latitude format of first data frame
+
+```{r}
+
+clean_lat <- function(x) {
+  str_replace_all(x, "\\.", "") %>% 
+    str_replace("([0-9]{2})([0-9]*)", "\\1.\\2") %>%
+    as.numeric()
+}
+
+clean_lon <- function(x) {
+  str_replace_all(x, "\\.", "") %>% 
+    str_replace("([0-9]{1})([0-9]*)", "\\1.\\2") %>%
+    as.numeric()
+}
+
+df2 <- df2 %>% 
+  mutate(
+    latitude = clean_lat(latitude),
+    longitude = clean_lon(longitude)
+  )
+
+head(df2)
+```
+
+# Merge the data frames
+
+```{r}
+df <- bind_rows(df, df2)
+```
+
+# Format timestamps
+
+```{r}
+df$ts <- df$ts %>%
+  str_replace_all("\\.", "") %>% 
+  str_sub(1, 10) %>%
+  as.integer()
+
+head(df)
 ```
 
 ## clean other variables
@@ -135,6 +163,24 @@ df %>%
   theme(legend.position = "bottom")
 ```
 
+```{r}
+df %>%
+  filter(dayid == 1) %>%
+  qmplot(longitude, latitude, data = .)
+```
+
+
+```{r}
+df %>%
+  filter(dayid == 2) %>%
+  qmplot(longitude, latitude, data = .)
+```
+
+```{r}
+df %>%
+  filter(dayid == 3) %>%
+  qmplot(longitude, latitude, data = .)
+```
 
 ## calculate distance covered between timestamps
 
