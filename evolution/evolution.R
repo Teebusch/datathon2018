@@ -1,137 +1,176 @@
 
+
+library(lubridate)
+library(geosphere)
+library(zoo)
 require(tidyverse)
 require(ggmap)
 require(Imap)
-require(plyr)
+#require(plyr)
+require(scales)
+#library(ggalt)
+library("viridis")
+source("evolution/multiplot.R")
 
 
 # Loading data
-load("evolution/data/cycling_clean.RData")
-source("evolution/multiplot.R")
+df = read_rds("cycling.rds") %>% 
+  group_by(day) %>%
+  mutate(time_rel = ts - min(ts),
+         bin_half = round(time_rel/30),
+         bin_min = round(time_rel)/60) %>%
+  ungroup()
 
-race = unique(df %>% select(-EventEnqueuedUtcTime, 
-                            -EventProcessedUtcTime))  %>% 
-  filter(ts > 1515200000) %>%
-  mutate(time = ts - min(df$ts), 
-         half = round(time/30),
-         power = as.numeric(power)) 
+#  Time vs Power
+df %>%
+ggplot(aes(x = dt, y = power, group = id)) +
+  geom_point(size=0.3) +
+  facet_wrap(  ~ id) + 
+  ggtitle("Time vs. Power") +
+  ggsave("evolution/img/Time vs. Power.png")
 
-# We remove the two strange riders that doesn't have speed. See the following plot
-race_clean = race %>%
-  filter( !( qid %in% c("AFQ36860", "AFQ47736")) ) 
-
-# # Save data
-# save(race, file = "evolution/data/race.RData")
-
-# Validate 
-ggplot(race_clean, aes(x = time, y = power, group = qid)) +
-  geom_line() +
-  facet_wrap(~qid)
-
-race_clean %>%
-  filter(time > 1700 * 60) %>%
-ggplot(aes(x = time, y = power, group = qid)) +
-  geom_line() +
-  facet_wrap(~qid) +
-  scale_x_continuous(breaks = seq(1700 * 60, 1800 * 60, 30)) + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-race_clean %>%
-  filter(time < 1500 * 60) %>%
-  ggplot(aes(x = time, y = speed, group = qid)) +
-  geom_line() +
-  facet_wrap(~qid) +
-  scale_x_continuous(breaks = seq(0 * 60, 1000 * 60, 30)) + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+# Time vs Latitude
+df %>%
+  ggplot(aes(x = dt, y = latitude, group = id)) +
+  geom_point() +
+  facet_wrap(  ~ id) + 
+  ggtitle("Time vs. Laitude") +
+  ggsave("evolution/img/Time vs. Latitude.png")
 
 
-# Draw the coordinates
-race_clean %>%
-  group_by(qid) %>%
-  arrange(ts) %>%
-  ungroup() %>%
-  ggplot(aes(x = longitude, y = latitude)) +
-  geom_path(show.legend = FALSE) + 
-  facet_wrap(~qid)
+# ---------------------------------------------
+# I focus only in the race 
+# Participants Lat: 10,12,4,8,9,6,7
+# Participants with Power: 10, 12,4,8, 9
+df1 = df %>% filter(day == "2017-10-17 UTC") 
 
-race_clean %>%
-  filter(time > 1711 * 60) %>%
-  group_by(qid) %>%
-  arrange(time) %>%
-  ungroup() %>%
+
+#  Time vs Power
+df1 %>%
+  ggplot(aes(x = dt, y = power, group = id)) +
+  geom_point(size=0.3) +
+  facet_wrap(  ~ id) + 
+  ggtitle("Time vs. Power (Race)") +
+  ggsave("evolution/img/Time vs. Power (Race).png")
+
+
+# Latitude and Longitude for day 2017-10-17 UTC
+df1 %>%
   ggplot(aes(x = longitude, y = latitude, color = time)) +
   geom_path(show.legend = TRUE) + 
-  facet_wrap(~qid)
+  facet_wrap(~id) +
+  ggtitle("Latitude and Longitude for day 2017-10-17 UTC")  +
+  ggsave("evolution/img/Latitude vs Longitude (Race).png")
 
-# Finish line
-race_gmaps = race_clean %>% filter(time > 1705.4 * 60 & time < 1706 * 60)
 
-center = paste(min(race_gmaps$latitude) + (max(race_gmaps$latitude) - min(race_gmaps$latitude))/2,
-               min(race_gmaps$longitude) + (max(race_gmaps$longitude) - min(race_gmaps$longitude))/2, sep=" ")
+# Latitude longitude
+center = paste( min(df1$latitude) + 
+                 (max(df1$latitude) - min(df1$latitude)) / 2,
+               min(df1$longitude) + 
+                 (max(df1$longitude) - min(df1$longitude))/2, 
+               sep=" ")
 
-gmap <- get_map(location = center, zoom = 16, maptype = "satellite", source = "google")
-
+gmap <- get_map(location = center, zoom = 12, maptype = "satellite", source = "google")
 ggmap(gmap) + 
-  geom_path(data = race_gmaps, aes(x = longitude, y = latitude, color = power)) +
+  geom_path(data = df1, aes(x = longitude, y = latitude, color = speed)) +
   scale_colour_gradient(low = "green", high = "red") +
-  facet_wrap(~qid)
+  facet_wrap(~id) +
+  ggtitle("Latitude and Longitude for day 2017-10-17 UTC") +
+  ggsave("evolution/img/Latitude vs Longitude (Race) Google.png")
+  
+# -----------------------------------------------
+# Estimate the begining and the end of the race
+# END
+df1 %>%
+  filter(bin_min > 270 & bin_min < 280) %>%
+  ggplot(aes(x = time_rel, y = power, group = id)) +
+  geom_line() +
+  facet_wrap(~id) +
+  scale_x_continuous(breaks = seq(270*60, 300*60, 30)) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_vline(xintercept = 16500, color = "red") +
+  ggtitle("Time vs. Power (Race) Last period") +
+  ggsave("evolution/img/Time vs. Power (Race) Last period.png")
 
-# Heading the hotel (Speed)
-race_gmaps = race_clean %>% filter(time > 1705.4 * 60 & time < 17011 * 60)
+# The Race may finish at time_rel 16500 (around 275)
 
-center = paste(min(race_gmaps$latitude) + (max(race_gmaps$latitude) - min(race_gmaps$latitude))/2,
-               min(race_gmaps$longitude) + (max(race_gmaps$longitude) - min(race_gmaps$longitude))/2, sep=" ")
+# Draw the coordinates
+df1 %>%
+  filter(bin_min > 273 & bin_min < 276) %>%
+  ggplot(aes(x = longitude, y = latitude, color = time, group = id )) +
+  scale_colour_gradient(low = "green", high = "red") +
+  geom_point() + 
+  facet_wrap(~id) +
+  ggtitle("Latitude vs. Longitude (Race) Las period") + 
+  ggsave("evolution/img/Latitude vs. Longitude (Race) Last period.png")
+  
+
+# Latitude longitude Google maps
+z_df1 = df1 %>% filter(bin_min > 273 & bin_min < 276)
+center = paste( min(z_df1$latitude) + 
+                  (max(z_df1$latitude) - min(z_df1$latitude)) / 2,
+                min(z_df1$longitude) + 
+                  (max(z_df1$longitude) - min(z_df1$longitude))/2, 
+                sep=" ")
 
 gmap <- get_map(location = center, zoom = 15, maptype = "satellite", source = "google")
-
 ggmap(gmap) + 
-  geom_path(data = race_gmaps, aes(x = longitude, y = latitude, color = as.numeric(speed)), size = 0.9) +
+  geom_path(data = z_df1, aes(x = longitude, y = latitude, color = power)) +
   scale_colour_gradient(low = "green", high = "red") +
-  facet_wrap(~qid)
+  facet_wrap(~id) +
+  ggtitle("Latitude and Longitude for day 2017-10-17 UTC Finish Line") +
+  ggsave("evolution/img/Latitude vs Longitude (Race) Google Finish Line.png")
 
 # Percentage completed
-race_distance  = race_clean %>% 
-  filter(time < 1706 * 60) %>%
-  group_by(qid) %>%
-  arrange(time) %>%
-  ungroup() %>%
-  group_by(qid) %>%
-  mutate(latitude_lag = lag(latitude), longitude_lag = lag(longitude),
-         latitude_lag = ifelse(is.na(latitude_lag), latitude, latitude_lag),
-         longitude_lag = ifelse(is.na(longitude_lag), longitude, longitude_lag),
-         distance = gdist(lon.1 = longitude, 
-                          lat.1 = latitude, 
-                          lon.2 = longitude_lag, 
-                          lat.2 = latitude_lag, 
-                          units="m"),
-         distance_cum = sum(distance),
-         speed_cum = sum(as.numeric(speed))) %>%
-  ungroup()
-  
-race_distance %>% group_by(qid) %>%
-  summarise(distance_cum = sum(distance) / 1000,
-            speed_cum = sum(as.numeric(speed)) / 1000
-            )
+# df1 %>%
+#   filter(bin_min < 275) %>%
+#   group_by(id) %>%
+#   arrange(time) %>%
+#   mutate(latitude_lag = lag(latitude),
+#          longitude_lag = lag(longitude),
+#          latitude_lag = ifelse(is.na(latitude_lag), latitude, latitude_lag),
+#          longitude_lag = ifelse(is.na(longitude_lag), longitude, longitude_lag),
+#          distance = gdist(lon.1 = longitude,
+#                           lat.1 = latitude,
+#                           lon.2 = longitude_lag,
+#                           lat.2 = latitude_lag,
+#                           units="m")
+#          #distance = ifelse(is.na(distance), 0, distance)
+#          ) %>%
+#   ungroup() %>%
+#   group_by(id) %>%
+#   summarise(distance_cum = sum(distance),
+#             speed_cum = sum(speed)
+#             )
 
 # Difference between riders
-
 select_order = function(distance) {
   return (order(distance))
 }
 
 # Percentage completed
-race_progress  = race_clean %>% 
-  filter(time < 1706 * 60) %>%
-  group_by(half) %>%
-  arrange(time) %>%
-  mutate(latitude_ref = mean(latitude), longitude_ref = mean(longitude)) %>%
+df1_progress  = df1 %>% 
+  mutate(  bin_half = round(time_rel/60), idp = paste0(qid, " (", id, ")") ) %>%
+  filter(bin_min < 275) %>%
+  group_by(bin_half) %>%
+  arrange(time_rel) %>%
+  mutate(latitude_ref = mean(latitude), 
+         longitude_ref = mean(longitude)) %>%
   ungroup() %>%
-  group_by(qid, half) %>%
-  summarise(latitude = mean(latitude), longitude = mean(longitude),
-            latitude_ref = mean(latitude_ref), longitude_ref = mean(longitude_ref) ) %>%
+  group_by(id, idp, bin_half) %>%
+  summarise(latitude = mean(latitude), 
+            longitude = mean(longitude),
+            latitude_ref = mean(latitude_ref), 
+            longitude_ref = mean(longitude_ref)
+            ) %>%
   ungroup() %>%
-  group_by(qid) %>%
-  mutate(latitude_ref = lead(latitude_ref), longitude_ref = lead(longitude_ref)) %>%
+  group_by(id) %>%
+  mutate(latitude_ref = lead(latitude_ref), 
+         longitude_ref = lead(longitude_ref),
+         lag_bin_half = lag(bin_half),
+         lag_bin_half = ifelse(is.na(lag_bin_half), bin_half, lag_bin_half),
+         diff_bins = ifelse(bin_half - lag_bin_half > 1, 1, 0),
+         check = cumsum(diff_bins))  %>%
   ungroup() %>%
   filter(!is.na(latitude_ref) & !is.na(longitude_ref)) %>%
   mutate( distance = gdist(lon.1 = longitude, 
@@ -139,103 +178,119 @@ race_progress  = race_clean %>%
                    lon.2 = longitude_ref, 
                    lat.2 = latitude_ref, 
                    units="m")) %>%
-  group_by(half) %>%
+  group_by(bin_half) %>%
   mutate(order = select_order(distance) ) %>% 
   ungroup()
+
   
+
+
   # Plot
-sequence = seq(min(race_progress$half), max(race_progress$half), 1) #20
-race_plot = race_progress %>%
-  mutate(qid1 = ifelse(qid == "AFO34112", "1", "0"),
-         qid2 = ifelse(qid == "AFQ10923", "1", "0"),
-         qid3 = ifelse(qid == "AFQ12544", "1", "0"),
-         qid4 = ifelse(qid == "AFQ30790", "1", "0"),
-         qid5 = ifelse(qid == "AFQ31151", "1", "0"),
-         qid6 = ifelse(qid == "AFQ38198", "1", "0"),
-         qid7 = ifelse(qid == "AFQ50464", "1", "0")
-         ) %>%
-  filter(half %in% sequence)
-
-race_plot %>%
-  filter(qid4 == "0") %>%
-  ggplot(aes(x = half, y = order, group = qid )) +
-  geom_line(alpha = 0.25, size = 1.8) +
-  scale_y_reverse(breaks = seq(1:7)) + 
-  theme_bw() + 
-  geom_line(data = race_plot %>% filter(qid4 == "1"), 
-            aes(x = half, y = order, group = qid),
-            color = "#bd0026", size = 1.8) +
-  geom_point(data = race_plot %>% filter(qid4 == "1"), 
-            aes(x = half, y = order, group = qid),
-            color = "#bd0026", size = 3) +
-  ggtitle("AFQ30790")
-
-
-race_plot %>%
-  ggplot(aes(x = half, y = order, group = qid )) +
-  geom_line(alpha = 0.5, size = 1) +
-  scale_y_reverse(breaks = seq(1:7)) + 
+df1_progress %>%
+  ggplot(aes(x = bin_half, y = order, group = check )) +
+  geom_xspline(spline_shape=0.4) +
+  scale_y_reverse(breaks = seq(1:7), labels = c("1st", "2nd", "3rd", "4th", "5th", "6th", "7th")) + 
+  scale_x_continuous(breaks = seq(0, 274, 3) ) +
+  xlab("Time (minutes)") +
+  ylab("") + 
   theme_bw() +
-  facet_grid(qid ~ .)
+  facet_grid(idp ~ .) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  ggtitle("Evolution of the team (2017-10-17 UTC)") +
+  ggsave("evolution/img/Evolution of the team.png",
+         )
 
-# ----------------------
-### Shape of the peloton
-sequence = seq(min(race_progress$half), max(race_progress$half), 50)  #20
+# ----------------------------------------------------------
+# Adding additional variables
+df1_selection_bin  = df1 %>% 
+  mutate(  bin_half = round(time_rel/60) ) %>%
+  select(id, bin_half, speed, power, cadence, heartrate) %>%
+  group_by(id, bin_half) %>%
+  summarise(speed = mean(speed, na.rm = TRUE), speed_sd = sd(speed, na.rm = TRUE),
+            power = mean(power, na.rm = TRUE), power_sd = sd(power, na.rm = TRUE),
+            cadence = mean(cadence, na.rm = TRUE), cadence_sd = sd(cadence, na.rm = TRUE),
+            heartrate = mean(heartrate, na.rm = TRUE), cadence_sd = sd(heartrate,na.rm = TRUE))
+                                                                       
+                                                                      
 
-# Aaaaaah
-race_progress %>% 
-  filter(half %in% sequence ) %>%
-  group_by(half) %>%
-  summarise(lat = max(latitude) - min(latitude),
-            long = max(longitude) - min(longitude)) %>%
-  ungroup() %>%
-  summarise(lat = max(lat), long = max(long))
-# Aaaaaaaah
+df1_progress_selection = merge(df1_progress, df1_selection_bin) %>% group_by(id) %>% arrange(bin_half) %>% ungroup()
+# ----------------------------------------------------------
 
-structure = function(i) {
-  race_structure = race_progress %>% 
-    filter(half == sequence[i]) %>%
-    mutate(lat = latitude - min(latitude),
-           long = longitude - min(longitude)) 
-  
-  find_hull <- function(df) df[chull(df$lat, df$long), ]
-  hulls <- ddply(race_structure, "half", find_hull)
-  
-  p = race_structure %>% 
-    ggplot(aes(lat,long, group = half)) + 
-    scale_x_continuous(limits = c(0,0.004461299)) +
-    scale_y_continuous(limits = c(0,0.004766111)) +
-    geom_point(size = 0.25) + 
-    geom_polygon(data = hulls, alpha = 0.75) + 
-    theme_bw() +
-    theme(axis.title.x=element_blank(),
-          axis.text.x=element_blank(),
-          axis.ticks.x=element_blank(),
-          axis.title.y=element_blank(),
-          axis.text.y=element_blank(),
-          axis.ticks.y=element_blank()) + 
-    ggtitle(paste0("Time: ",sequence[i]))
-  
-  # print(c(min(race_structure$lat), max(race_structure$lat)))
-  # print(c(min(race_structure$long), max(race_structure$long)))
-  return(p)
-}
+# Speed
+df1_progress_selection %>%
+  ggplot(aes(x = bin_half, y = order, group = check, color = speed )) +
+  geom_line() +
+  scale_color_viridis(NULL, option = "A") +
+  scale_y_reverse(breaks = seq(1:7), labels = c("1st", "2nd", "3rd", "4th", "5th", "6th", "7th")) + 
+  scale_x_continuous(breaks = seq(0, 274, 3) ) +
+  xlab("Time (minutes)") +
+  ylab("") + 
+  theme_bw() +
+  facet_grid(idp ~ .) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  guides(fill=guide_legend(title="Speed")) +
+  ggtitle("Evolution of the team by Speed (2017-10-17 UTC)") +
+  ggsave("evolution/img/Evolution of the team by Speed.png")
 
-p1 = structure(1)
-p2 = structure(2)
-p3 = structure(3)
-p4 = structure(4)
-p5 = structure(5)
-p6 = structure(6)
-p7 = structure(7)
-p8 = structure(8)
-p9 = structure(9)
-p10 = structure(10)
-p11 = structure(11)
-p12 = structure(12)
-p13 = structure(13)
-p14 = structure(14)
-p15 = structure(15)
+# Power
+df1_progress_selection %>%
+  ggplot(aes(x = bin_half, y = order, group = check, color = power )) +
+  geom_line() +
+  scale_color_viridis(NULL, option = "A") +
+  scale_y_reverse(breaks = seq(1:7), labels = c("1st", "2nd", "3rd", "4th", "5th", "6th", "7th")) + 
+  scale_x_continuous(breaks = seq(0, 274, 3) ) +
+  xlab("Time (minutes)") +
+  ylab("") + 
+  theme_bw() +
+  facet_grid(idp ~ .) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  guides(fill=guide_legend(title="Power")) +
+  ggtitle("Evolution of the team by Power (2017-10-17 UTC)") +
+  ggsave("evolution/img/Evolution of the team by Power.png")
+
+# Cadence
+df1_progress_selection %>%
+  ggplot(aes(x = bin_half, y = order, group = check, color = cadence )) +
+  geom_line() +
+  scale_color_viridis(NULL, option = "A") +
+  scale_y_reverse(breaks = seq(1:7), labels = c("1st", "2nd", "3rd", "4th", "5th", "6th", "7th")) + 
+  scale_x_continuous(breaks = seq(0, 274, 3) ) +
+  xlab("Time (minutes)") +
+  ylab("") + 
+  theme_bw() +
+  facet_grid(idp ~ .) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  guides(fill=guide_legend(title="Cadence")) +
+  ggtitle("Evolution of the team by Cadence (2017-10-17 UTC)") +
+  ggsave("evolution/img/Evolution of the team by Cadence.png")
+
+# Heart rate
+df1_progress_selection %>%
+  ggplot(aes(x = bin_half, y = order, group = check, color = heartrate )) +
+  geom_line() +
+  scale_color_viridis(NULL, option = "A") +
+  scale_y_reverse(breaks = seq(1:7), labels = c("1st", "2nd", "3rd", "4th", "5th", "6th", "7th")) + 
+  scale_x_continuous(breaks = seq(0, 274, 3) ) +
+  xlab("Time (minutes)") +
+  ylab("") + 
+  theme_bw() +
+  facet_grid(idp ~ .) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  guides(fill=guide_legend(title="Heart Rate")) +
+  ggtitle("Evolution of the team by Heart Rate (2017-10-17 UTC)") +
+  ggsave("evolution/img/Evolution of the team by Heart Rate.png")
+
+# 
 
 
-multiplot(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, p13, p14, p15, cols=4)
+
+
+# sequence = seq(min(df1_progress_selection$bin_half), max(df1_progress_selection$bin_half), 20)
+# z_df1_progress_sum = df1_progress_selection %>% filter(bin_half %in% sequence)
+# 
+# z_df1_progress_sum %>%
+#   ggplot(aes(x = bin_half, y = order, group = id )) +
+#   geom_line() +
+#   geom_point() +
+#   scale_y_reverse(breaks = seq(1:7)) + 
+#   theme_bw() 
