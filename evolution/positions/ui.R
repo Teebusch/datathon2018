@@ -19,6 +19,7 @@ shinyUI(navbarPage("Peloton Viewer",
                                         min = 108,
                                         max = 144,
                                         value = 108,
+                                        step = 3,
                                         animate = animationOptions(interval = 1000, loop = TRUE)),
                             plotOutput("areaPlot", height = "300px"),
                             plotOutput("distPlot", height = "600px")
